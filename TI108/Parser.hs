@@ -1,5 +1,6 @@
 module TI108.Parser
 ( test
+, nested
 , operation
 ) where
 
@@ -20,15 +21,33 @@ operand = readOperand <$> number
           number      = many1 digit
 
 operator :: Parsec String () Operator
-operator = readOperator <$> (plus <|> minus <|> star <|> slash)
-    where plus  = char '+'
-          minus = char '-'
-          star  = char '*'
-          slash = char '/'
-          readOperator x | x == '+' = Add
-                         | x == '-' = Sub
-                         | x == '*' = Mul
-                         | x == '/' = Div
+operator = plus <|> minus <|> star <|> slash
+
+plus :: Parsec String () Operator
+plus = (\_ -> Add) <$> char '+'
+
+minus :: Parsec String () Operator
+minus = (\_ -> Sub) <$> char '-'
+
+star :: Parsec String () Operator
+star = (\_ -> Mul) <$> char '*'
+
+slash :: Parsec String () Operator
+slash = (\_ -> Div) <$> char '/'
+
+openParen :: Parsec String () Char
+openParen = char '('
+
+closeParen :: Parsec String () Char
+closeParen = char '('
+
+operation :: Parsec String () Operation
+operation = do
+    op <- singleOperation <|> singleParentheticalOperation
+    spaces
+    moreOps <- many additionalOperation
+    return $ foldl reducer op moreOps
+        where reducer acc opFun = opFun acc
 
 singleOperation :: Parsec String () Operation
 singleOperation = do
@@ -36,24 +55,8 @@ singleOperation = do
     spaces
     op <- operator
     spaces
-    b <- operand
-    return $ Operation op (Value a) (Value b)
-
-additionalOperation :: Parsec String () (Operation -> Operation)
-additionalOperation = do
-    op <- operator
-    spaces
-    c <- operand
-    spaces
-    return $ \ab -> Operation op ab (Value c)
-
-operation :: Parsec String () Operation
-operation = do
-    op <- singleOperation
-    spaces
-    moreOps <- many additionalOperation
-    return $ foldl reducer op moreOps
-        where reducer acc opFun = opFun acc
+    b <- (Value <$> operand) <|> singleParentheticalOperation
+    return $ Operation op (Value a) b
 
 singleParentheticalOperation :: Parsec String () Operation
 singleParentheticalOperation = do
@@ -64,18 +67,10 @@ singleParentheticalOperation = do
     char ')'
     return op
 
-additionalParentheticalOperation :: Parsec String () (Operation -> Operation)
-additionalParentheticalOperation = do
+additionalOperation :: Parsec String () (Operation -> Operation)
+additionalOperation = do
     op <- operator
     spaces
-    c <- singleParentheticalOperation
+    c <- (Value <$> operand) <|> singleParentheticalOperation
     spaces
     return $ \ab -> Operation op ab c
-
-parentheticalOperation :: Parsec String () Operation
-parentheticalOperation = do
-    op <- (operation <|> singleParentheticalOperation)
-    spaces
-    moreOps <- many (try additionalParentheticalOperation <|> additionalOperation)
-    return $ foldl reducer op moreOps
-        where reducer acc opFun = opFun acc
